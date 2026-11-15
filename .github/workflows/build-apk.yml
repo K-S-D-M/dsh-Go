@@ -1,0 +1,104 @@
+name: DSH Go APK Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'check (fast) or release (full)'
+        required: true
+        default: release
+        type: choice
+        options:
+          - check
+          - release
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  check:
+    if: github.event.inputs.job == 'check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ccch1mneyyy/dsh-Go
+          ref: main
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+          cache: true
+      - name: Install SDK components
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SM" || SM="$SDK/cmdline-tools/bin/sdkmanager"
+          yes | "$SM" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+          "$SM" --sdk_root="$SDK" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" >/dev/null
+      - name: Analyze
+        run: |
+          cd app
+          flutter pub get
+          flutter analyze --no-pub
+      - name: Build debug APK
+        run: |
+          cd app
+          flutter build apk --debug --flavor arm64 --target-platform android-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-go-arm64-debug
+          path: app/build/app/outputs/flutter-apk/app-arm64-debug.apk
+          retention-days: 7
+
+  release:
+    if: github.event.inputs.job == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ccch1mneyyy/dsh-Go
+          ref: main
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.7'
+          cache: true
+      - name: Install Android SDK components
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SM" || SM="$SDK/cmdline-tools/bin/sdkmanager"
+          yes | "$SM" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+          "$SM" --sdk_root="$SDK" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+      - name: Prepare runtime from official release
+        run: |
+          curl -fL --retry 3 -o /tmp/rel.apk https://github.com/ccch1mneyyy/dsh-Go/releases/download/v1.0.16/dsh-go-1.0.16-arm64.apk
+          rm -rf /tmp/apk && mkdir -p /tmp/apk
+          unzip -q -o /tmp/rel.apk "assets/runtime/*" "lib/arm64-v8a/libproot.so" "lib/arm64-v8a/libproot-loader.so" "lib/arm64-v8a/libtalloc.so" "lib/arm64-v8a/libandroid-shmem.so" -d /tmp/apk
+          mkdir -p runtime/out/arm64-v8a/assets runtime/out/arm64-v8a/jniLibs/arm64-v8a
+          cp -a /tmp/apk/assets/runtime runtime/out/arm64-v8a/assets/
+          cp /tmp/apk/lib/arm64-v8a/libproot.so /tmp/apk/lib/arm64-v8a/libproot-loader.so /tmp/apk/lib/arm64-v8a/libtalloc.so /tmp/apk/lib/arm64-v8a/libandroid-shmem.so runtime/out/arm64-v8a/jniLibs/arm64-v8a/
+          python3 -I tooling/check_runtime_bundle.py arm64
+      - name: Build release APK
+        run: |
+          DSH_BETA_TOKEN_FILE= bash tooling/build-apk.sh -f arm64
+      - name: Verify APK
+        run: |
+          ls -lh app/build/app/outputs/flutter-apk/app-arm64-release.apk
+          sha256sum app/build/app/outputs/flutter-apk/app-arm64-release.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-go-arm64-release
+          path: app/build/app/outputs/flutter-apk/app-arm64-release.apk
+          retention-days: 7
