@@ -48,6 +48,7 @@ jobs:
           flutter analyze --no-pub
       - name: Build debug APK
         run: |
+          export ANDROID_NDK_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk/28.2.13676358"
           cd app
           flutter build apk --debug --flavor arm64 --target-platform android-arm64
       - uses: actions/upload-artifact@v4
@@ -92,6 +93,7 @@ jobs:
           python3 -I tooling/check_runtime_bundle.py arm64
       - name: Build release APK
         run: |
+          export ANDROID_NDK_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk/28.2.13676358"
           DSH_BETA_TOKEN_FILE= bash tooling/build-apk.sh -f arm64
       - name: Verify APK
         run: |
